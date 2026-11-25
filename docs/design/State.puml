@@ -1,0 +1,34 @@
+@startuml
+title PayLink - Payment Life Cycle (Section 2.5)
+
+[*] --> Initiated : payment requested
+
+Initiated --> FundsHeld : fraud checks pass AND\nwallet has enough funds
+Initiated --> Rejected : fraud check fails OR\ninsufficient funds
+
+FundsHeld --> SentToBiller : request sent to biller
+
+SentToBiller --> Completed : biller confirms
+SentToBiller --> Failed : biller refuses
+SentToBiller --> Unknown : no answer within timeout\n(10 s for live billers)
+
+Unknown --> Completed : biller later confirms\n(callback, retry or settlement file)
+Unknown --> Failed : biller later refuses OR\nreconciliation finds no payment
+
+Failed --> Refunded : hold released to wallet
+
+Completed --> [*]
+Rejected --> [*]
+Refunded --> [*]
+
+note right of Unknown
+  Never refunded automatically.
+  Re-queried after 1, 5 and 15 minutes,
+  then waits for reconciliation.
+end note
+
+note bottom of Completed
+  Final states:
+  Completed, Rejected, Refunded
+end note
+@enduml
