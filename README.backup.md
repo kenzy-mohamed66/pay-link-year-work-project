@@ -12,8 +12,8 @@ To be decided and declared in Phase 1 (language, framework, relational database,
 
 ## How to run
 
-Coming soon:
-
+    git clone https://github.com/kenzy-mohamed66/pay-link-year-work-project.git
+    cd pay-link-year-work-project
     docker compose up
 
 ## Documentation
@@ -31,13 +31,7 @@ Coming soon:
 | Member 3 | Kenzy | User stories FR-15 to FR-21, ambiguities and AI questions list, sequence diagrams (pay a bill, refund a failed payment) |
 | Member 4 | Sondos | User stories FR-22 to FR-28, ER diagram, payment state diagram, Dockerfile and docker compose |
 
-### Roles (rotate between phases)
 
-| Role | Phase 1 |
-|---|---|
-| Requirements and product lead ||
-| Quality and DevOps lead | (to be agreed) |
-| Architecture lead | (to be agreed) |
 
 ## Contribution rules
 

@@ -452,7 +452,7 @@ The challenge is to build a new backend that is:
 
 ## 6. Ambiguities and Decisions
 
-### 6.1 FR-1 to FR-7 (Member 1)
+### 6.1 FR-1 to FR-7 
 
 | Question / ambiguity | Decision |
 |---|---|
@@ -462,7 +462,7 @@ The challenge is to build a new backend that is:
 | Does the daily limit reset at midnight or after a rolling 24 hours? | Calendar day in Africa/Cairo time (configurable). |
 | Does a hold count toward the daily limit? | Yes, from the moment the funds are held. |
 
-### 6.2 FR-8 to FR-28 (Member 3)
+### 6.2 FR-8 to FR-28 
 
 | Question / ambiguity | Decision |
 |---|---|
