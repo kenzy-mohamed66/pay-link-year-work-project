@@ -1,0 +1,185 @@
+@startuml
+title PayLink - ER Diagram
+hide circle
+skinparam linetype ortho
+
+entity "app_user" as app_user {
+  * id : UUID <<PK>>
+  --
+  * full_name : VARCHAR(100)
+  * phone : VARCHAR(20) <<UNIQUE>>
+  email : VARCHAR(100)
+  * role : VARCHAR(20)  -- CUSTOMER, AGENT, ADMIN, SUPPORT
+  * verification_level : VARCHAR(20)  -- BASIC, VERIFIED
+  * is_blocked : BOOLEAN
+  blocked_until : TIMESTAMP
+  * created_at : TIMESTAMP
+}
+
+entity "wallet" as wallet {
+  * id : UUID <<PK>>
+  --
+  * user_id : UUID <<FK, UNIQUE>>
+  * currency : CHAR(3)
+  * created_at : TIMESTAMP
+}
+
+entity "ledger_entry" as ledger_entry {
+  * id : UUID <<PK>>
+  --
+  * wallet_id : UUID <<FK>>
+  payment_id : UUID <<FK>>
+  * entry_type : VARCHAR(20)  -- TOPUP, HOLD, HOLD_RELEASE, CHARGE, FEE_INCOME, COMMISSION, REFUND
+  * bucket : VARCHAR(10)  -- AVAILABLE, HELD
+  * amount : DECIMAL(12,2)
+  description : VARCHAR(255)
+  * created_at : TIMESTAMP
+}
+
+entity "biller" as biller {
+  * id : UUID <<PK>>
+  --
+  * code : VARCHAR(30) <<UNIQUE>>
+  * name : VARCHAR(100)
+  * protocol : VARCHAR(20)  -- REST, SOAP, ASYNC, BATCH
+  * is_active : BOOLEAN
+}
+
+entity "biller_service" as biller_service {
+  * id : UUID <<PK>>
+  --
+  * biller_id : UUID <<FK>>
+  * name : VARCHAR(100)
+  * min_amount : DECIMAL(12,2)
+  * max_amount : DECIMAL(12,2)
+  * is_active : BOOLEAN
+}
+
+entity "service_input_field" as service_input_field {
+  * id : UUID <<PK>>
+  --
+  * service_id : UUID <<FK>>
+  * field_name : VARCHAR(50)
+  * label : VARCHAR(100)
+  * is_required : BOOLEAN
+}
+
+entity "payment" as payment {
+  * id : UUID <<PK>>
+  --
+  * reference : VARCHAR(40) <<UNIQUE>>
+  * idempotency_key : VARCHAR(64) <<UNIQUE>>
+  * customer_id : UUID <<FK>>
+  agent_id : UUID <<FK>>
+  * service_id : UUID <<FK>>
+  * amount : DECIMAL(12,2)
+  * fee_amount : DECIMAL(12,2)
+  * total_amount : DECIMAL(12,2)
+  * status : VARCHAR(20)
+  biller_reference : VARCHAR(60)
+  failure_reason : VARCHAR(255)
+  * created_at : TIMESTAMP
+  * updated_at : TIMESTAMP
+}
+
+entity "payment_status_history" as payment_status_history {
+  * id : UUID <<PK>>
+  --
+  * payment_id : UUID <<FK>>
+  from_status : VARCHAR(20)
+  * to_status : VARCHAR(20)
+  reason : VARCHAR(255)
+  * changed_at : TIMESTAMP
+}
+
+entity "fee_rule" as fee_rule {
+  * id : UUID <<PK>>
+  --
+  * service_id : UUID <<FK>>
+  * fee_type : VARCHAR(10)  -- FIXED, PERCENT, TIERED
+  fixed_amount : DECIMAL(12,2)
+  percent_rate : DECIMAL(5,2)
+  min_fee : DECIMAL(12,2)
+  tier_threshold : DECIMAL(12,2)
+  tier_low_fee : DECIMAL(12,2)
+  tier_high_fee : DECIMAL(12,2)
+}
+
+entity "promotion" as promotion {
+  * id : UUID <<PK>>
+  --
+  * biller_id : UUID <<FK>>
+  * start_date : DATE
+  * end_date : DATE
+  * fee_override : DECIMAL(12,2)
+}
+
+entity "system_setting" as system_setting {
+  * setting_key : VARCHAR(60) <<PK>>
+  --
+  * setting_value : VARCHAR(100)
+  updated_by : UUID <<FK>>
+  * updated_at : TIMESTAMP
+}
+
+entity "notification" as notification {
+  * id : UUID <<PK>>
+  --
+  * user_id : UUID <<FK>>
+  payment_id : UUID <<FK>>
+  * channel : VARCHAR(10)  -- SMS, EMAIL, PUSH
+  * template_code : VARCHAR(50)
+  * status : VARCHAR(15)  -- PENDING, SENT, UNDELIVERED
+  * attempts : INT
+  last_attempt_at : TIMESTAMP
+}
+
+entity "audit_log" as audit_log {
+  * id : UUID <<PK>>
+  --
+  * actor_id : UUID <<FK>>
+  * action : VARCHAR(60)
+  * entity_type : VARCHAR(40)
+  * entity_id : VARCHAR(40)
+  details : TEXT
+  * created_at : TIMESTAMP
+}
+
+entity "settlement_file" as settlement_file {
+  * id : UUID <<PK>>
+  --
+  * biller_id : UUID <<FK>>
+  * file_date : DATE
+  * uploaded_at : TIMESTAMP
+}
+
+entity "reconciliation_item" as reconciliation_item {
+  * id : UUID <<PK>>
+  --
+  * settlement_file_id : UUID <<FK>>
+  payment_id : UUID <<FK>>
+  * biller_reference : VARCHAR(60)
+  * biller_amount : DECIMAL(12,2)
+  * result : VARCHAR(25)  -- MATCHED, AMOUNT_MISMATCH, STATUS_MISMATCH, MISSING_IN_PAYLINK
+  * reviewed : BOOLEAN
+}
+
+app_user ||--|| wallet : owns
+wallet ||--o{ ledger_entry : has
+payment |o--o{ ledger_entry : creates
+app_user ||--o{ payment : "pays as customer"
+app_user |o--o{ payment : "pays as agent"
+biller ||--o{ biller_service : offers
+biller_service ||--o{ service_input_field : requires
+biller_service ||--o{ payment : "paid for"
+biller_service ||--o{ fee_rule : "priced by"
+biller ||--o{ promotion : "may have"
+payment ||--o{ payment_status_history : logs
+app_user ||--o{ notification : receives
+payment |o--o{ notification : triggers
+app_user ||--o{ audit_log : performs
+app_user |o--o{ system_setting : edits
+biller ||--o{ settlement_file : sends
+settlement_file ||--o{ reconciliation_item : contains
+payment |o--o{ reconciliation_item : "compared with"
+@enduml
