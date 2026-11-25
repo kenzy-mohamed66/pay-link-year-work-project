@@ -1,0 +1,85 @@
+@startuml use-case-diagram
+title PayLink - Use Case Diagram
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam nodesep 40
+skinparam ranksep 60
+
+actor "Customer" as Customer
+actor "Agent" as Agent
+actor "Admin" as Admin
+actor "Support Employee" as Support
+actor "Biller\n(ElectroCo, AquaCo,\nTopUpNet, NetCo)" as Biller <<external>>
+actor "Notification Provider\n(SMS, Email, Push)" as Notif <<external>>
+
+rectangle "PayLink System" {
+
+  package "Accounts and Wallet" {
+    usecase "Register (FR-1)" as UC_Register
+    usecase "Upgrade to Verified (FR-2)" as UC_Upgrade
+    usecase "View Balance (FR-3)" as UC_Balance
+    usecase "View Transaction History (FR-3)" as UC_History
+    usecase "Top Up by Card (FR-4)" as UC_TopupCard
+    usecase "Top Up by Agent Cash (FR-4)" as UC_TopupCash
+    usecase "Record Ledger Entry (FR-5)" as UC_Ledger
+  }
+
+  package "Biller Catalog" {
+    usecase "Manage Billers and Services (FR-6)" as UC_Manage
+    usecase "Browse Billers and Required Fields (FR-7)" as UC_Browse
+  }
+
+  package "Payments" {
+    usecase "Bill Inquiry (FR-8)" as UC_Inquiry
+    usecase "Pay Bill (FR-9)" as UC_Pay
+    usecase "Check Fraud Rules (FR-18, FR-19)" as UC_Fraud
+    usecase "Hold Funds (FR-12)" as UC_Hold
+    usecase "Send Receipt Notification (FR-22)" as UC_Notify
+    usecase "Handle Biller Callback (FR-14)" as UC_Callback
+    usecase "Refund Failed Payment (FR-12)" as UC_Refund
+  }
+
+  package "Support and Operations" {
+    usecase "Search Payment by Reference (FR-20)" as UC_Search
+    usecase "Block / Unblock Account (FR-21)" as UC_Block
+    usecase "Reconcile with Settlement File (FR-26)" as UC_Recon
+  }
+}
+
+Customer -- UC_Register
+Customer -- UC_Balance
+Customer -- UC_History
+Customer -- UC_TopupCard
+Customer -- UC_Browse
+Customer -- UC_Inquiry
+Customer -- UC_Pay
+
+Agent -- UC_TopupCash
+Agent -- UC_Pay
+
+Admin -- UC_Manage
+Admin -- UC_Upgrade
+
+Support -- UC_Upgrade
+Support -- UC_Search
+Support -- UC_Block
+Support -- UC_Recon
+
+UC_Inquiry -- Biller
+UC_Pay -- Biller
+Biller -- UC_Callback
+Biller -- UC_Recon
+UC_Notify -- Notif
+
+UC_Pay ..> UC_Fraud : <<include>>
+UC_Pay ..> UC_Hold : <<include>>
+UC_Pay ..> UC_Notify : <<include>>
+UC_Pay ..> UC_Inquiry : <<include>>
+UC_Hold ..> UC_Ledger : <<include>>
+UC_TopupCard ..> UC_Ledger : <<include>>
+UC_TopupCash ..> UC_Ledger : <<include>>
+UC_Refund ..> UC_Ledger : <<include>>
+UC_Refund ..> UC_Pay : <<extend>>
+UC_Callback ..> UC_Pay : <<extend>>
+@enduml
