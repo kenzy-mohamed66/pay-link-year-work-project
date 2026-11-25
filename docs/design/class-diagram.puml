@@ -1,0 +1,344 @@
+@startuml PayLink_Domain_Class_Diagram
+title PayLink - Domain Class Diagram
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+' ===== Accounts and Wallet =====
+abstract class Account {
+  +id: UUID
+  +phoneNumber: String
+  +name: String
+  +status: AccountStatus
+  +createdAt: DateTime
+}
+
+class Customer {
+  +verificationLevel: VerificationLevel
+  +dailyLimit(): Decimal
+}
+
+class Agent {
+  +shopName: String
+  +commissionRate: Decimal
+}
+
+class Wallet {
+  +id: UUID
+  +currency: String = "EGP"
+  +availableBalance(): Decimal
+  +heldBalance(): Decimal
+}
+
+class LedgerEntry <<immutable>> {
+  +id: UUID
+  +type: LedgerEntryType
+  +amount: Decimal
+  +reference: String
+  +createdAt: DateTime
+}
+
+class Hold {
+  +id: UUID
+  +amount: Decimal
+  +status: HoldStatus
+  +createdAt: DateTime
+}
+
+class TopUp {
+  +id: UUID
+  +method: TopUpMethod
+  +amount: Decimal
+  +status: String
+}
+
+enum AccountStatus {
+  ACTIVE
+  BLOCKED
+}
+enum VerificationLevel {
+  BASIC
+  VERIFIED
+}
+enum LedgerEntryType {
+  TOP_UP
+  HOLD
+  CHARGE
+  RELEASE
+  REFUND
+  FEE
+  COMMISSION
+}
+enum HoldStatus {
+  ACTIVE
+  CAPTURED
+  RELEASED
+}
+enum TopUpMethod {
+  CARD
+  AGENT_CASH
+}
+
+Account <|-- Customer
+Account <|-- Agent
+Account "1" -- "1" Wallet : owns >
+Wallet "1" *-- "0..*" LedgerEntry : records >
+Wallet "1" o-- "0..*" Hold : reserves >
+Wallet "1" -- "0..*" TopUp : receives >
+Agent "0..1" -- "0..*" TopUp : performs cash >
+Account --> AccountStatus
+Customer --> VerificationLevel
+LedgerEntry --> LedgerEntryType
+Hold --> HoldStatus
+TopUp --> TopUpMethod
+
+' ===== Biller Catalog =====
+class Biller {
+  +id: UUID
+  +code: String
+  +name: String
+  +protocol: ProtocolType
+  +active: Boolean
+}
+
+class BillerService {
+  +id: UUID
+  +name: String
+  +minAmount: Decimal
+  +maxAmount: Decimal
+  +active: Boolean
+}
+
+class RequiredField {
+  +name: String
+  +label: String
+  +type: String
+  +validationPattern: String
+}
+
+enum ProtocolType {
+  REST_JSON
+  SOAP_XML
+  ASYNC_CALLBACK
+  BATCH_CSV
+}
+
+Biller "1" *-- "1..*" BillerService : offers >
+BillerService "1" *-- "0..*" RequiredField : requires >
+Biller --> ProtocolType
+
+' ===== Payment Processing =====
+class BillInquiry {
+  +id: UUID
+  +billerReference: String
+  +billAmount: Decimal
+  +fee: Decimal
+  +total: Decimal
+  +createdAt: DateTime
+}
+
+class Payment {
+  +id: UUID
+  +reference: String
+  +amount: Decimal
+  +fee: Decimal
+  +total: Decimal
+  +state: PaymentState
+  +failureReason: String
+  +createdAt: DateTime
+  +updatedAt: DateTime
+}
+
+class PaymentStateHistory <<immutable>> {
+  +fromState: PaymentState
+  +toState: PaymentState
+  +reason: String
+  +changedAt: DateTime
+}
+
+class IdempotencyKey {
+  +key: String
+  +requestHash: String
+  +responseSnapshot: String
+  +expiresAt: DateTime
+}
+
+enum PaymentState {
+  INITIATED
+  FUNDS_HELD
+  SENT_TO_BILLER
+  COMPLETED
+  FAILED
+  UNKNOWN
+  REJECTED
+  REFUNDED
+}
+
+class RetryTask {
+  +attemptNumber: Integer
+  +scheduledAt: DateTime
+  +status: String
+}
+
+class BillerCallback {
+  +id: UUID
+  +externalReference: String
+  +result: String
+  +receivedAt: DateTime
+  +duplicate: Boolean
+}
+
+Customer "1" -- "0..*" Payment : makes >
+Agent "0..1" -- "0..*" Payment : initiates for >
+BillerService "1" -- "0..*" Payment : pays for >
+Payment "1" *-- "1..*" PaymentStateHistory : logs >
+Payment "1" -- "1" IdempotencyKey : identified by >
+Payment "0..1" -- "1" BillInquiry : based on >
+Payment "1" -- "0..1" Hold : reserves with >
+Payment "1" -- "0..*" LedgerEntry : creates >
+Payment "1" -- "0..3" RetryTask : re-queried by >
+Payment "1" -- "0..*" BillerCallback : receives >
+Payment --> PaymentState
+Customer "1" -- "0..*" BillInquiry : requests >
+BillerService "1" -- "0..*" BillInquiry : asks >
+
+' ===== Fees and Commissions =====
+abstract class FeeRule {
+  +id: UUID
+  +priority: Integer
+  +calculate(amount: Decimal): Decimal
+}
+class FixedFeeRule {
+  +fixedAmount: Decimal
+}
+class PercentageFeeRule {
+  +percentage: Decimal
+  +minimumFee: Decimal
+}
+class TieredFeeRule {
+  +threshold: Decimal
+  +lowFee: Decimal
+  +highFee: Decimal
+}
+class Promotion {
+  +startDate: Date
+  +endDate: Date
+  +feeOverride: Decimal = 0
+}
+class Commission {
+  +id: UUID
+  +amount: Decimal
+  +rate: Decimal
+  +createdAt: DateTime
+}
+
+FeeRule <|-- FixedFeeRule
+FeeRule <|-- PercentageFeeRule
+FeeRule <|-- TieredFeeRule
+BillerService "1" -- "1" FeeRule : charges using >
+Biller "1" -- "0..*" Promotion : may run >
+Payment "1" -- "0..1" Commission : earns >
+Agent "1" -- "0..*" Commission : receives >
+
+' ===== Fraud Checks =====
+abstract class FraudRule {
+  +check(payment: Payment): FraudResult
+}
+class DailyLimitRule
+class VelocityRule {
+  +maxPayments: Integer = 5
+  +windowSeconds: Integer = 60
+  +blockMinutes: Integer = 10
+}
+class BlockedAccountRule
+class FraudResult {
+  +passed: Boolean
+  +reason: String
+}
+FraudRule <|-- DailyLimitRule
+FraudRule <|-- VelocityRule
+FraudRule <|-- BlockedAccountRule
+FraudRule ..> FraudResult : returns
+FraudRule "0..1" --> "0..1" FraudRule : next >
+
+' ===== Notifications =====
+class Notification {
+  +id: UUID
+  +channel: Channel
+  +templateCode: String
+  +status: NotificationStatus
+  +retryCount: Integer
+  +createdAt: DateTime
+}
+enum Channel {
+  SMS
+  EMAIL
+  PUSH
+}
+enum NotificationStatus {
+  PENDING
+  SENT
+  UNDELIVERED
+}
+Customer "1" -- "0..*" Notification : receives >
+Payment "0..1" -- "0..*" Notification : triggers >
+Notification --> Channel
+Notification --> NotificationStatus
+
+' ===== Reconciliation =====
+class SettlementFile {
+  +id: UUID
+  +billerCode: String
+  +fileDate: Date
+}
+class SettlementRecord {
+  +billerReference: String
+  +amount: Decimal
+  +status: String
+}
+class ReconciliationReport {
+  +id: UUID
+  +runDate: Date
+  +matched: Integer
+  +differences: Integer
+}
+class ReconciliationDifference {
+  +type: DifferenceType
+  +note: String
+  +reviewed: Boolean
+}
+enum DifferenceType {
+  MISSING_IN_PAYLINK
+  MISSING_IN_SETTLEMENT
+  STATUS_MISMATCH
+  AMOUNT_MISMATCH
+}
+Biller "1" -- "0..*" SettlementFile : sends >
+SettlementFile "1" *-- "0..*" SettlementRecord
+ReconciliationReport "1" *-- "0..*" ReconciliationDifference
+ReconciliationDifference "0..*" -- "0..1" Payment : concerns >
+ReconciliationDifference "0..*" -- "0..1" SettlementRecord : concerns >
+ReconciliationReport "0..*" -- "1" SettlementFile : based on >
+ReconciliationDifference --> DifferenceType
+
+' ===== Audit =====
+class AuditLog <<immutable>> {
+  +id: UUID
+  +actorId: UUID
+  +action: String
+  +entityType: String
+  +entityId: UUID
+  +reason: String
+  +createdAt: DateTime
+}
+class AdminUser {
+  +role: StaffRole
+}
+enum StaffRole {
+  ADMIN
+  SUPPORT
+}
+Account <|-- AdminUser
+AdminUser --> StaffRole
+AuditLog "0..*" --> "1" Account : performed by >
+
+@enduml
