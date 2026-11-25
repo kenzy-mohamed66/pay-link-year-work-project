@@ -1,7 +1,8 @@
 @startuml PayLink_Domain_Class_Diagram
 title PayLink - Domain Class Diagram
 skinparam classAttributeIconSize 0
-skinparam linetype ortho
+skinparam nodesep 30
+skinparam ranksep 45
 
 ' ===== Accounts and Wallet =====
 abstract class Account {
@@ -9,6 +10,7 @@ abstract class Account {
   +phoneNumber: String
   +name: String
   +status: AccountStatus
+  +blockedUntil: DateTime
   +createdAt: DateTime
 }
 
@@ -22,6 +24,10 @@ class Agent {
   +commissionRate: Decimal
 }
 
+class AdminUser {
+  +role: StaffRole
+}
+
 class Wallet {
   +id: UUID
   +currency: String = "EGP"
@@ -31,16 +37,11 @@ class Wallet {
 
 class LedgerEntry <<immutable>> {
   +id: UUID
-  +type: LedgerEntryType
+  +entryType: LedgerEntryType
+  +bucket: LedgerBucket
   +amount: Decimal
   +reference: String
-  +createdAt: DateTime
-}
-
-class Hold {
-  +id: UUID
-  +amount: Decimal
-  +status: HoldStatus
+  +description: String
   +createdAt: DateTime
 }
 
@@ -59,19 +60,22 @@ enum VerificationLevel {
   BASIC
   VERIFIED
 }
+enum StaffRole {
+  ADMIN
+  SUPPORT
+}
 enum LedgerEntryType {
   TOP_UP
   HOLD
+  HOLD_RELEASE
   CHARGE
-  RELEASE
-  REFUND
-  FEE
+  FEE_INCOME
   COMMISSION
+  REFUND
 }
-enum HoldStatus {
-  ACTIVE
-  CAPTURED
-  RELEASED
+enum LedgerBucket {
+  AVAILABLE
+  HELD
 }
 enum TopUpMethod {
   CARD
@@ -80,16 +84,47 @@ enum TopUpMethod {
 
 Account <|-- Customer
 Account <|-- Agent
+Account <|-- AdminUser
 Account "1" -- "1" Wallet : owns >
 Wallet "1" *-- "0..*" LedgerEntry : records >
-Wallet "1" o-- "0..*" Hold : reserves >
 Wallet "1" -- "0..*" TopUp : receives >
 Agent "0..1" -- "0..*" TopUp : performs cash >
 Account --> AccountStatus
 Customer --> VerificationLevel
+AdminUser --> StaffRole
 LedgerEntry --> LedgerEntryType
-Hold --> HoldStatus
+LedgerEntry --> LedgerBucket
 TopUp --> TopUpMethod
+
+' ===== Approvals (FR-2, FR-27) =====
+class VerificationRequest {
+  +id: UUID
+  +status: ApprovalStatus
+  +requestedAt: DateTime
+  +decidedAt: DateTime
+}
+
+class RefundRequest {
+  +id: UUID
+  +amount: Decimal
+  +reason: String
+  +status: ApprovalStatus
+  +requestedAt: DateTime
+  +decidedAt: DateTime
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+Customer "1" -- "0..*" VerificationRequest : asks upgrade >
+Customer "1" -- "0..*" RefundRequest : requests >
+AdminUser "0..1" -- "0..*" VerificationRequest : decides >
+AdminUser "0..1" -- "0..*" RefundRequest : approves >
+VerificationRequest --> ApprovalStatus
+RefundRequest --> ApprovalStatus
 
 ' ===== Biller Catalog =====
 class Biller {
@@ -142,7 +177,7 @@ class Payment {
   +amount: Decimal
   +fee: Decimal
   +total: Decimal
-  +state: PaymentState
+  +status: PaymentState
   +failureReason: String
   +createdAt: DateTime
   +updatedAt: DateTime
@@ -192,11 +227,11 @@ Agent "0..1" -- "0..*" Payment : initiates for >
 BillerService "1" -- "0..*" Payment : pays for >
 Payment "1" *-- "1..*" PaymentStateHistory : logs >
 Payment "1" -- "1" IdempotencyKey : identified by >
-Payment "0..1" -- "1" BillInquiry : based on >
-Payment "1" -- "0..1" Hold : reserves with >
+Payment "0..1" -- "0..1" BillInquiry : based on >
 Payment "1" -- "0..*" LedgerEntry : creates >
 Payment "1" -- "0..3" RetryTask : re-queried by >
 Payment "1" -- "0..*" BillerCallback : receives >
+Payment "1" -- "0..*" RefundRequest : refunded by >
 Payment --> PaymentState
 Customer "1" -- "0..*" BillInquiry : requests >
 BillerService "1" -- "0..*" BillInquiry : asks >
@@ -238,6 +273,14 @@ BillerService "1" -- "1" FeeRule : charges using >
 Biller "1" -- "0..*" Promotion : may run >
 Payment "1" -- "0..1" Commission : earns >
 Agent "1" -- "0..*" Commission : receives >
+
+' ===== Configuration (FR-24) =====
+class SystemSetting {
+  +settingKey: String
+  +settingValue: String
+  +updatedAt: DateTime
+}
+AdminUser "0..1" -- "0..*" SystemSetting : edits >
 
 ' ===== Fraud Checks =====
 abstract class FraudRule {
@@ -327,18 +370,9 @@ class AuditLog <<immutable>> {
   +action: String
   +entityType: String
   +entityId: UUID
-  +reason: String
+  +details: String
   +createdAt: DateTime
 }
-class AdminUser {
-  +role: StaffRole
-}
-enum StaffRole {
-  ADMIN
-  SUPPORT
-}
-Account <|-- AdminUser
-AdminUser --> StaffRole
 AuditLog "0..*" --> "1" Account : performed by >
 
 @enduml
