@@ -1,0 +1,42 @@
+@startuml
+title Refund a Failed Payment (US-19)
+
+autonumber
+skinparam sequenceMessageAlign center
+
+actor "Customer\n(AppUser)" as Customer
+participant "Biller\n(AquaCo)" as Biller <<external>>
+participant "Payment" as Payment
+participant "Wallet" as Wallet
+participant "LedgerEntry" as Ledger
+participant "AuditLog" as Audit
+participant "Notification" as Notif
+
+note over Payment, Wallet : Payment is SENT_TO_BILLER and its funds are held (352.50)
+
+Biller -> Payment : refuses (error code)
+Payment -> Payment : [SENT_TO_BILLER -> FAILED]\n(PaymentStateHistory saved)
+
+Payment -> Wallet : releaseHold(payment)
+Wallet -> Ledger : HOLD_RELEASE already exists for this payment?
+
+alt yes (release triggered again)
+    Ledger --> Wallet : yes
+    Wallet --> Payment : ignored, no second refund\n(ledger has exactly one release entry)
+else no (first release)
+    Ledger --> Wallet : no
+    Wallet -> Ledger : add HOLD_RELEASE entry\n(held -> available)
+    Wallet -> Audit : record release (who, when, why, amount, payment ref)
+    Wallet --> Payment : hold released
+    Payment -> Payment : [FAILED -> REFUNDED]
+    Payment -> Notif : payment failed + reason
+    Notif --> Customer : SMS + push with a clear reason
+end
+
+note over Payment
+    The same release path is used when an UNKNOWN payment
+    is later resolved as FAILED (re-query says "not paid"
+    or reconciliation finds no payment) - US-21, US-22.
+end note
+
+@enduml
