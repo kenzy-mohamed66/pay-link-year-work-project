@@ -1,142 +1,75 @@
 @startuml
-title PayLink - Sequence Diagram: Pay a Bill (FR-8 to FR-13, FR-16, FR-18, FR-19, FR-22, FR-25)
+title Pay a Bill (US-12, US-18, US-20)
 
 autonumber
-skinparam responseMessageBelowArrow true
 skinparam sequenceMessageAlign center
 
-actor Customer
-participant "Mobile App /\nAgent Terminal" as App
-participant "Payment API\n(Controller)" as API
-participant "Payment\nService" as PS
-participant "Fee\nService" as Fee
-participant "Fraud Check\nChain" as Fraud
-participant "Wallet &\nLedger Service" as Wallet
-participant "Biller Adapter\n(via Factory)" as Adapter
+actor "Customer\n(AppUser)" as Customer
+participant "Payment" as Payment
+participant "FeeRule" as Fee
+participant "FraudRule" as Fraud
+participant "Wallet" as Wallet
+participant "LedgerEntry" as Ledger
 participant "Biller\n(ElectroCo)" as Biller <<external>>
-participant "Notification\nService" as Notif
-participant "SMS / Push\nProvider" as Provider <<external>>
-database "Database\n(payment, ledger,\naudit_log)" as DB
+participant "Notification" as Notif
 
-== 1. Bill inquiry (no money moves) ==
-Customer -> App : enter meter number
-App -> API : POST /billers/{id}/inquiry
-API -> Adapter : inquire(meterNumber)
-Adapter -> Biller : bill inquiry request
-Biller --> Adapter : bill amount = 350.00
-Adapter --> API : Bill(amount = 350.00)
-API -> Fee : calculateFee(service, amount)
-Fee --> API : fee = 2.50 (0.00 if promotion active)
-API --> App : amount 350.00 + fee 2.50 = total 352.50
-App --> Customer : show amount, fee and total
+note over Customer, Payment
+    Bill inquiry was already done: amount 350.00.
+    The request carries an idempotency key.
+end note
 
-== 2. Payment request and idempotency ==
-Customer -> App : confirm payment
-App -> API : POST /payments\n(Idempotency-Key = K)
-API -> PS : pay(request, K)
-PS -> DB : find payment by key K
+Customer -> Payment : confirm payment
+Payment -> Fee : calculate(350.00)
+Fee --> Payment : fee 2.50, total 352.50
+Payment -> Payment : create payment [INITIATED]
 
-alt key K already exists (FR-10)
-    DB --> PS : existing payment
-    alt same request data
-        PS --> API : original result (no new payment, no ledger entry)
-        API --> App : 200 original result
-    else different amount / biller / customer
-        PS --> API : conflict error
-        API --> App : 409 Conflict
-    end
-else new key
-    DB --> PS : not found
-    PS -> DB : create payment (state = Initiated)\n+ status history entry
+Payment -> Fraud : check(payment)
+alt blocked account / limit exceeded
+    Fraud --> Payment : failed (e.g. "account blocked")
+    Payment -> Payment : [INITIATED -> REJECTED]
+    Payment --> Customer : Rejected + reason
+else checks passed
+    Fraud --> Payment : passed
 
-    == 3. Fraud checks ==
-    PS -> Fraud : check(payment)
-    note right of Fraud
-        Chain of Responsibility:
-        blocked account -> amount limits (5 to 10,000)
-        -> daily limit -> velocity (5 per 60 s)
-    end note
+    == US-18: hold funds before the biller is called ==
+    Payment -> Wallet : hold(352.50)
+    alt not enough available balance
+        Wallet --> Payment : failed
+        Payment -> Payment : [INITIATED -> REJECTED]
+        Payment --> Customer : Rejected "insufficient funds"\n(biller is never called)
+    else hold created
+        Wallet -> Ledger : add HOLD entry
+        Wallet --> Payment : available 647.50, held 352.50
+        Payment -> Payment : [INITIATED -> FUNDS_HELD]
 
-    alt a fraud rule fails
-        Fraud --> PS : rejected(reason)
-        PS -> DB : state Initiated -> Rejected\n+ audit entry
-        PS --> API : Rejected(reason)
-        API --> App : rejected with clear reason
-        App --> Customer : show reason
-    else all rules pass
-        Fraud --> PS : passed
+        == US-12: call the biller ==
+        Payment -> Payment : [FUNDS_HELD -> SENT_TO_BILLER]
+        Payment -> Biller : pay(billerReference)
 
-        == 4. Hold the money ==
-        PS -> Wallet : holdFunds(wallet, total = 352.50)
-        Wallet -> DB : lock wallet and check available balance
-
-        alt insufficient funds
-            DB --> Wallet : available < total
-            Wallet --> PS : insufficient funds
-            PS -> DB : state Initiated -> Rejected\n+ audit entry
-            PS --> API : Rejected("insufficient funds")
-            API --> App : rejected
-            App --> Customer : "insufficient funds"
-        else funds available
-            Wallet -> DB : ledger entry HOLD (available -352.50, held +352.50)\n+ audit record
-            Wallet --> PS : funds held
-            PS -> DB : state Initiated -> FundsHeld
-
-            == 5. Call the biller (10 s timeout) ==
-            PS -> DB : state FundsHeld -> SentToBiller
-            PS -> Adapter : pay(reference, amount)
-            Adapter -> Biller : payment request (unique reference)
-
-            alt biller confirms (paid)
-                Biller --> Adapter : paid
-                Adapter --> PS : confirmed
-                PS -> Wallet : confirmCharge(payment)
-                Wallet -> DB : ledger CHARGE (held -> spent)\nledger FEE_INCOME (PayLink)\n+ audit records
-                opt payment made by an agent
-                    Wallet -> DB : ledger COMMISSION (agent wallet +40% of fee)\n+ audit record
-                end
-                PS -> DB : state SentToBiller -> Completed
-                PS --> API : Completed
-                API --> App : payment completed
-                App --> Customer : show receipt
-
-            else biller refuses
-                Biller --> Adapter : refused (error code)
-                Adapter --> PS : refused(reason)
-                PS -> DB : state SentToBiller -> Failed
-                note over PS, DB
-                    Hold release and refund are shown in the
-                    sequence diagram "Refund a Failed Payment".
-                end note
-                PS --> API : Failed(reason)
-                API --> App : payment failed
-                App --> Customer : show reason
-
-            else no answer within 10 seconds
-                Adapter --> PS : timeout
-                PS -> DB : state SentToBiller -> Unknown\n(money stays held)
-                PS --> API : Processing
-                API --> App : "your payment is being processed"
-                App --> Customer : show processing message
-                note over PS
-                    Re-queried after 1, 5 and 15 minutes.
-                    Never refunded automatically.
-                end note
+        alt biller confirms
+            Biller --> Payment : paid
+            Payment -> Ledger : add CHARGE (hold becomes final charge)\n+ FEE_INCOME
+            opt payment made by an agent
+                Payment -> Ledger : add COMMISSION (40% of fee)
             end
+            Payment -> Payment : [SENT_TO_BILLER -> COMPLETED]
+            Payment -> Notif : send receipt (SMS + push)
+            Payment --> Customer : Completed
+        else biller refuses
+            Biller --> Payment : refused (error code)
+            Payment -> Payment : [SENT_TO_BILLER -> FAILED]
+            note right : Hold release and refund:\nsee "Refund a Failed Payment"
+            Payment --> Customer : Failed
+        else US-20: no answer within 10 seconds
+            Payment -> Payment : [SENT_TO_BILLER -> UNKNOWN]
+            note right : Money stays held.\nNever refunded automatically.
+            Payment --> Customer : "your payment is being processed"
         end
     end
 end
 
-== 6. Receipt notification (does not affect the payment) ==
-PS -> Notif : paymentOutcome(payment)
-Notif -> Provider : send SMS and push message
-alt provider is down
-    Provider --> Notif : error
-    Notif -> DB : notification PENDING\nretry up to 3 times, then UNDELIVERED
-else delivered
-    Provider --> Notif : ok
-    Notif -> DB : notification SENT
-end
-Notif --> Customer : SMS and push receipt
+note over Ledger
+    Every ledger entry also gets an AuditLog record (US-36).
+end note
 
 @enduml
