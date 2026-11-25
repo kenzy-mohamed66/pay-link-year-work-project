@@ -2,15 +2,6 @@
 
 | Date | Author | Stage | Tool and model | Prompt | Summary of answer | Verdict (accepted, fixed, rejected) and why |
 |---|---|---|---|---|---|---|
-
-| 2026-11-25 | Mariam (Member 1) | Requirements | Claude | Role: reviewer.<br>Context: our 41 user stories (US-1 to US-41) and the brief's FR priorities.<br>Task: check the stories against the brief and convert them to docs/requirements.md.<br>Constraints: keep our wording, do not add new stories, report every mismatch.<br>Output: markdown file plus a list of problems. | A markdown file and a list of mismatches. | Accepted after checking: the AI found that FR-17 and FR-19 were marked Must but the brief says Should, a stray sentence in US-34, and missing "As a" lines in US-35 and US-41. We fixed them in the Word file. |
-
-
-
-# Prompt Log
-
-| Date | Author | Stage | Tool and model | Prompt | Summary of answer | Verdict (accepted, fixed, rejected) and why |
-|---|---|---|---|---|---|---|
 | 2026-11-21 | Kenzy | Requirements | Claude | First: "make my things, user stories FR-22 to FR-28". Improved: "make the US from 33 to 41 from the old PDF, same format as our document (ID, name, req, actors, ...)" | First answer gave plain Given/When/Then lists. Second gave 9 stories (US-33 to US-41) in the team table format. | Fixed: the first answer ignored our document's format and numbering. I reviewed the scenarios that were the AI's own assumptions. |
 | 2026-11-21 | Kenzy | Design (state diagram) | PlantUML (code generated with Claude) | "generate the state diagram using PlantUML code" (payment life cycle, brief section 2.5) | PlantUML state diagram: 8 states, 9 transitions, notes for Unknown and the final states. | Accepted: I rendered it and checked every transition against the section 2.5 table. None is missing or extra. |
 | 2026-11-21 | Kenzy | Design (ER diagram) | PlantUML (code generated with Claude) | "Role: database architect. Context: PayLink brief (ledger, holds, payments, billers, fees, notifications, audit, reconciliation). Task: ER diagram in PlantUML. Constraints: at least 10 tables, balances computed from the ledger and never stored, DECIMAL for money, PK/FK marked. Output: one .puml file." | PlantUML ER diagram with 15 tables, PK/FK marked, DECIMAL money fields and relationships with cardinality. | Accepted: it meets the 10-table minimum, and I checked the table names against the class and state diagrams. |
